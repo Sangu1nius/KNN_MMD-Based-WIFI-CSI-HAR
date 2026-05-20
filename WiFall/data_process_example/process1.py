@@ -3,7 +3,7 @@ import pickle
 import os
 import pandas as pd
 
-root="./data"
+root="../WiFall"
 data=[]
 csi_vaid_subcarrier_index = range(0, 52)
 
@@ -12,7 +12,7 @@ def handle_complex_data(x, valid_indices):
     imag_parts = []
     for i in valid_indices:
         real_parts.append(x[i * 2])
-        imag_parts.append(x[i * 2 - 1])
+        imag_parts.append(x[i * 2 + 1])
     return np.array(real_parts) + 1j * np.array(imag_parts)
 
 
