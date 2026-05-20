@@ -11,6 +11,7 @@ import argparse
 from model import Resnet,Linear
 from sklearn.model_selection import train_test_split
 from func import mk_mmd_loss
+import datetime, os, json
 
 support_mmd=False
 global_mmd=True
@@ -86,7 +87,9 @@ def dimension_reducation(data_loader,input_dim=(1,100,52),output_dim=128):
         data_feature[index:index + num] = y
         data_label[index:index + num] = label
         index += num
-    reducer = umap.UMAP(n_components=output_dim)
+    n_samples = data_feature.shape[0]
+    actual_dim = min(output_dim, n_samples - 2)
+    reducer = umap.UMAP(n_components=actual_dim)
     embedding = reducer.fit_transform(data_feature)
     embedding = torch.from_numpy(embedding)
     return origin_data,embedding,data_label
@@ -372,6 +375,15 @@ def main():
     print('total parameters:', total_params)
     optim = torch.optim.Adam(parameters, lr=args.lr, weight_decay=0.01)
 
+    run_timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_dir = f"logs/run_{run_timestamp}_{args.task}"
+    os.makedirs(log_dir, exist_ok=True)
+    with open(f"{log_dir}/args.json", 'w') as f:
+        json.dump(vars(args), f, indent=2)
+    metrics_file = f"{log_dir}/metrics.json"
+    metrics_data = {"args": vars(args), "history": []}
+    print(f"Logging to {log_dir}")
+
     best_acc = 0
     best_loss = 1000
     acc_epoch = 0
@@ -381,15 +393,15 @@ def main():
 
     while True:
         j += 1
-        loss, acc = iteration(model, classifier, optim, train_loader, my_support_loader, support_loader, test_loader, device, task=task, train=True)
-        log = "Epoch {} | Train Loss {:06f},  Train Acc {:06f} | ".format(j, loss, acc)
+        train_loss, train_acc = iteration(model, classifier, optim, train_loader, my_support_loader, support_loader, test_loader, device, task=task, train=True)
+        log = "Epoch {} | Train Loss {:06f},  Train Acc {:06f} | ".format(j, train_loss, train_acc)
         print(log)
         with open(args.task + ".txt", 'a') as file:
             file.write(log)
 
-        loss, acc = iteration(model, classifier, optim, train_loader, support_loader, None, None, device, task=task, train=False)
+        valid_loss, valid_acc = iteration(model, classifier, optim, train_loader, support_loader, None, None, device, task=task, train=False)
         # loss, acc = iteration(model, classifier, optim, train_loader, my_support_loader, None, None, device, task=task, train=False)
-        log = "Valid Loss {:06f}, Valid Acc {:06f} | ".format(loss, acc)
+        log = "Valid Loss {:06f}, Valid Acc {:06f} | ".format(valid_loss, valid_acc)
         print(log)
         with open(args.task + ".txt", 'a') as file:
             file.write(log)
@@ -400,21 +412,35 @@ def main():
         with open(args.task + ".txt", 'a') as file:
             file.write(log + "\n")
 
-        if acc >= best_acc or loss <= best_loss:
-            torch.save(model.state_dict(), args.task + ".pth")
-            torch.save(classifier.state_dict(), args.task + "_cls.pth")
-        if acc >= best_acc:
-            if acc == best_acc:
+        epoch_metrics = {
+            "epoch": j,
+            "train_loss": float(train_loss), "train_acc": float(train_acc),
+            "valid_loss": float(valid_loss), "valid_acc": float(valid_acc),
+            "test_loss": float(test_loss), "test_acc": float(test_acc),
+            "best_acc": float(best_acc), "best_loss": float(best_loss),
+            "timestamp": datetime.datetime.now().isoformat()
+        }
+        metrics_data["history"].append(epoch_metrics)
+        with open(metrics_file, 'w') as f:
+            json.dump(metrics_data, f, indent=2)
+        with open(f"{log_dir}/best_info.json", 'w') as f:
+            json.dump({"best_acc": float(best_acc), "best_loss": float(best_loss), "epoch": j, "task": args.task}, f, indent=2)
+
+        if valid_acc >= best_acc or valid_loss <= best_loss:
+            torch.save(model.state_dict(), f"{log_dir}/best_model.pth")
+            torch.save(classifier.state_dict(), f"{log_dir}/best_cls.pth")
+        if valid_acc >= best_acc:
+            if valid_acc == best_acc:
                 same_epoch+=1
             else:
                 same_epoch=0
-            best_acc = acc
+            best_acc = valid_acc
             acc_epoch = 0
         else:
             acc_epoch += 1
             same_epoch = 0
-        if loss < best_loss:
-            best_loss = loss
+        if valid_loss < best_loss:
+            best_loss = valid_loss
             loss_epoch = 0
         else:
             loss_epoch += 1

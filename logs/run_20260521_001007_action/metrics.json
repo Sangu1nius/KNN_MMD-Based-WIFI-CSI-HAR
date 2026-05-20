@@ -1,0 +1,47 @@
+{
+  "args": {
+    "batch_size": 256,
+    "hidden_dim": 64,
+    "data_path": "./data/fall",
+    "cpu": false,
+    "cuda": "0",
+    "lr": 0.001,
+    "test_list": [
+      0
+    ],
+    "epoch": 30,
+    "task": "action",
+    "k": 5,
+    "n": 3,
+    "p": 0.5,
+    "d": 128,
+    "mode": 1,
+    "norm": true
+  },
+  "history": [
+    {
+      "epoch": 1,
+      "train_loss": 1.3677434399724007,
+      "train_acc": 0.517578125,
+      "valid_loss": 1.4880268573760986,
+      "valid_acc": 0.4399999976158142,
+      "test_loss": 1.302951693534851,
+      "test_acc": 0.5384615659713745,
+      "best_acc": 0.0,
+      "best_loss": 1000.0,
+      "timestamp": "2026-05-21T00:10:39.135140"
+    },
+    {
+      "epoch": 2,
+      "train_loss": 1.4917415529489517,
+      "train_acc": 0.4384765625,
+      "valid_loss": 1.998386263847351,
+      "valid_acc": 0.4399999976158142,
+      "test_loss": 1.5855966806411743,
+      "test_acc": 0.5384615659713745,
+      "best_acc": 0.4399999976158142,
+      "best_loss": 1.4880268573760986,
+      "timestamp": "2026-05-21T00:11:10.048007"
+    }
+  ]
+}

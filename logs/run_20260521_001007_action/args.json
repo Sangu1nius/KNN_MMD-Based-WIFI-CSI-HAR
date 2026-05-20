@@ -1,0 +1,19 @@
+{
+  "batch_size": 256,
+  "hidden_dim": 64,
+  "data_path": "./data/fall",
+  "cpu": false,
+  "cuda": "0",
+  "lr": 0.001,
+  "test_list": [
+    0
+  ],
+  "epoch": 30,
+  "task": "action",
+  "k": 5,
+  "n": 3,
+  "p": 0.5,
+  "d": 128,
+  "mode": 1,
+  "norm": true
+}
