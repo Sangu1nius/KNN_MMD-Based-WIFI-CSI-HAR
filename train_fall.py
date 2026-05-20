@@ -17,6 +17,44 @@ support_mmd=False
 global_mmd=True
 mmd_weight=2
 
+import math
+
+def _sanitize_float(v):
+    """Replace NaN/Inf with None so JSON remains valid."""
+    if v is None:
+        return None
+    f = float(v)
+    if math.isnan(f) or math.isinf(f):
+        return None
+    return f
+
+class SafeEncoder(json.JSONEncoder):
+    def default(self, obj):
+        return super().default(obj)
+
+    def encode(self, o):
+        return super().encode(o)
+
+    def iterencode(self, o, _one_shot=False):
+        return super().iterencode(o, _one_shot)
+
+def _safe_json_dump(data, filepath):
+    """Write JSON, replacing NaN/Inf with null so browsers can parse it."""
+    cleaned = _sanitize_nested(data)
+    with open(filepath, 'w') as f:
+        json.dump(cleaned, f, indent=2)
+
+def _sanitize_nested(obj):
+    if isinstance(obj, dict):
+        return {k: _sanitize_nested(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [_sanitize_nested(v) for v in obj]
+    elif isinstance(obj, float):
+        return None if (math.isnan(obj) or math.isinf(obj)) else obj
+    elif isinstance(obj, int):
+        return obj
+    return obj
+
 def get_args():
     parser = argparse.ArgumentParser(description='')
     parser.add_argument('--batch_size', type=int, default=256)
@@ -245,81 +283,53 @@ def iteration(model,classifier,optim,train_loader,test_loader,support_loader,glo
             x_emb_t = model(x_t)
             label_t = label_t.to(device)
 
-            loss_mmd = 0
+            loss_mmd = 0.0
             for i in range(class_num):
                 x_emb_i = x_emb[label == i]
                 xt_emb_i = x_emb_t[label_t == i]
                 if x_emb_i.shape[0] == 0 or xt_emb_i.shape[0] == 0:
                     continue
-                # if x_emb_i.shape[0]>xt_emb_i.shape[0]:
-                #     x_emb_i=x_emb_i[:xt_emb_i.shape[0]]
-                # elif x_emb_i.shape[0]<xt_emb_i.shape[0]:
-                #     xt_emb_i=xt_emb_i[:x_emb_i.shape[0]]
-
-                loss_mmd += mk_mmd_loss(x_emb_i, xt_emb_i, kernel_types=['gaussian','gaussian'], kernel_params=[0.5, 1.0]) / class_num
-            loss+=loss_mmd * mmd_weight
+                m = mk_mmd_loss(x_emb_i, xt_emb_i, kernel_types=['gaussian','gaussian'], kernel_params=[0.5, 1.0])
+                if not torch.isnan(m) and not torch.isinf(m):
+                    loss_mmd += m / class_num
+            loss += loss_mmd * mmd_weight
 
 
             if support_mmd:
-                ##########
-                # loss_mmd for real support set
                 test_iter=iter(support_loader)
                 x_t, label_t = next(test_iter)
                 x_t=x_t.to(device)
                 x_emb_t = model(x_t)
                 label_t = label_t.to(device)
-                loss_mmd = 0
+                loss_mmd = 0.0
                 for i in range(class_num):
                     x_emb_i = x_emb[label == i]
                     xt_emb_i = x_emb_t[label_t == i]
                     if x_emb_i.shape[0] == 0 or xt_emb_i.shape[0] == 0:
                         continue
-                    # if x_emb_i.shape[0]>xt_emb_i.shape[0]:
-                    #     x_emb_i=x_emb_i[:xt_emb_i.shape[0]]
-                    # elif x_emb_i.shape[0]<xt_emb_i.shape[0]:
-                    #     xt_emb_i=xt_emb_i[:x_emb_i.shape[0]]
-                    loss_mmd += mk_mmd_loss(x_emb_i, xt_emb_i, kernel_types=['gaussian','gaussian'], kernel_params=[0.5, 1.0])
-                loss+=loss_mmd * mmd_weight
+                    m = mk_mmd_loss(x_emb_i, xt_emb_i, kernel_types=['gaussian','gaussian'], kernel_params=[0.5, 1.0])
+                    if not torch.isnan(m) and not torch.isinf(m):
+                        loss_mmd += m
+                loss += loss_mmd * mmd_weight
 
 
             if global_mmd:
-                ##########
-                # loss_mmd between the whole training set and testing set
                 test_iter=iter(global_loader)
                 x_t, _ = next(test_iter)
                 x_t=x_t.to(device)
                 x_emb_t = model(x_t)
-                # if x_emb.shape[0]>x_emb_t.shape[0]:
-                #     x_emb=x_emb[:x_emb_t.shape[0]]
-                # elif x_emb.shape[0]<x_emb_t.shape[0]:
-                #     x_emb_t=x_emb_t[:x_emb.shape[0]]
                 total_mmd = mk_mmd_loss(x_emb, x_emb_t, kernel_types=['gaussian','gaussian'], kernel_params=[0.5, 1.0])
-                loss += total_mmd * mmd_weight
+                if not torch.isnan(total_mmd) and not torch.isinf(total_mmd):
+                    loss += total_mmd * mmd_weight
 
-
-                # y_t = classifier(x_emb_t)
-                # y_t = torch.softmax(y_t, dim=-1)
-                #
-                # loss_inner = torch.mean(torch.std(y_t,dim=-1))
-                # loss-=loss_inner
-                #
-                # # y_max, _ = torch.max(y_t, dim=-1, keepdim=True)
-                # # y_max = y_max.repeat(1, 6)
-                # # y_t[y_t == y_max] = 0
-                # # y_t = torch.sum(y_t, dim=0)
-                #
-                # y_t=torch.mean(y_t,dim=0)
-                #
-                # loss_label_unbalance=torch.std(y_t)
-                # loss+=loss_label_unbalance
-
-
-
-            model.zero_grad()
-            classifier.zero_grad()
-            loss.backward()
-            nn.utils.clip_grad_norm_(model.parameters(), 3.0)  # 用于裁剪梯度，防止梯度爆炸
-            optim.step()
+            if torch.isnan(loss) or torch.isinf(loss):
+                print(f"  [WARN] NaN/Inf loss at batch, skipping optimizer step")
+            else:
+                model.zero_grad()
+                classifier.zero_grad()
+                loss.backward()
+                nn.utils.clip_grad_norm_(model.parameters(), 3.0)
+                optim.step()
 
     return np.mean(loss_list), np.mean(acc_list)
 
@@ -419,10 +429,8 @@ def main():
             "timestamp": datetime.datetime.now().isoformat()
         }
         metrics_data["history"].append(epoch_metrics)
-        with open(metrics_file, 'w') as f:
-            json.dump(metrics_data, f, indent=2)
-        with open(f"{log_dir}/best_info.json", 'w') as f:
-            json.dump({"best_acc": float(best_acc), "best_loss": float(best_loss), "epoch": j, "task": args.task}, f, indent=2)
+        _safe_json_dump(metrics_data, metrics_file)
+        _safe_json_dump({"best_acc": float(best_acc) if not math.isnan(float(best_acc)) else None, "best_loss": float(best_loss) if not math.isnan(float(best_loss)) else None, "epoch": j, "task": args.task}, f"{log_dir}/best_info.json")
 
         if valid_acc >= best_acc or valid_loss <= best_loss:
             torch.save(model.state_dict(), f"{log_dir}/best_model.pth")
